@@ -1,0 +1,247 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
+
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════ */
+/* Tailwind v4 — @theme 커스텀 토큰               */
+/* ═══════════════════════════════════════════════ */
+
+@theme {
+  /* 컬러: 배경 (Cosmic) */
+  --color-cosmic-900: #0A0E27;
+  --color-cosmic-800: #151B3B;
+  --color-cosmic-700: #1A2142;
+  --color-cosmic-600: #1F2952;
+
+  /* 컬러: 네온 */
+  --color-neon-green: #00FF87;
+  --color-neon-pink: #FF0055;
+  --color-neon-yellow: #FFD600;
+  --color-neon-cyan: #00D9FF;
+  --color-neon-purple: #B620E0;
+
+  /* 컬러: 글라스 */
+  --color-glass: rgba(255, 255, 255, 0.03);
+  --color-glass-hover: rgba(255, 255, 255, 0.06);
+  --color-glass-border: rgba(255, 255, 255, 0.10);
+  --color-glass-border-hover: rgba(255, 255, 255, 0.20);
+
+  /* 컬러: 코인 */
+  --color-coin-btc: #F7931A;
+  --color-coin-eth: #627EEA;
+  --color-coin-xrp: #00AAE4;
+  --color-coin-sol: #9945FF;
+
+  /* 폰트 */
+  --font-heading: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* 폰트 사이즈 */
+  --font-size-hero: 72px;
+  --font-size-display-1: 48px;
+  --font-size-display-2: 36px;
+
+  /* 글로우 박스 쉐도우 */
+  --shadow-glow-green: 0 0 20px rgba(0, 255, 135, 0.5), 0 0 40px rgba(0, 255, 135, 0.2);
+  --shadow-glow-pink: 0 0 20px rgba(255, 0, 85, 0.5), 0 0 40px rgba(255, 0, 85, 0.2);
+  --shadow-glow-cyan: 0 0 20px rgba(0, 217, 255, 0.5), 0 0 40px rgba(0, 217, 255, 0.2);
+  --shadow-glow-yellow: 0 0 20px rgba(255, 214, 0, 0.5), 0 0 40px rgba(255, 214, 0, 0.2);
+  --shadow-glow-purple: 0 0 20px rgba(182, 32, 224, 0.5), 0 0 40px rgba(182, 32, 224, 0.2);
+  --shadow-glow-green-lg: 0 0 30px rgba(0, 255, 135, 0.6), 0 0 60px rgba(0, 255, 135, 0.3);
+  --shadow-glow-cyan-lg: 0 0 30px rgba(0, 217, 255, 0.6), 0 0 60px rgba(0, 217, 255, 0.3);
+  --shadow-glow-pink-lg: 0 0 30px rgba(255, 0, 85, 0.6), 0 0 60px rgba(255, 0, 85, 0.3);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --shadow-glass-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
+
+  /* 애니메이션 */
+  --animate-neon-pulse: neon-pulse 2s ease-in-out infinite;
+  --animate-shimmer: shimmer 3s ease-in-out infinite;
+  --animate-float: float 3s ease-in-out infinite;
+  --animate-score-fill: score-fill 1.5s ease-out forwards;
+  --animate-fade-in-up: fade-in-up 0.6s ease-out forwards;
+
+  @keyframes neon-pulse {
+
+    0%,
+    100% {
+      opacity: 1;
+      box-shadow: 0 0 20px rgba(0, 255, 135, 0.5);
+    }
+
+    50% {
+      opacity: 0.8;
+      box-shadow: 0 0 40px rgba(0, 255, 135, 0.8);
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes float {
+
+    0%,
+    100% {
+      transform: translateY(0px);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes score-fill {
+    0% {
+      width: 0%;
+    }
+
+    100% {
+      width: var(--score-width);
+    }
+  }
+
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════ */
+/* 글로벌 스타일                                    */
+/* ═══════════════════════════════════════════════ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: #0A0E27;
+  color: #FFFFFF;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── 배경 파티클 ─── */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(0, 217, 255, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(182, 32, 224, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(0, 255, 135, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ─── 스크롤바 ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── 셀렉션 ─── */
+::selection {
+  background: rgba(0, 217, 255, 0.3);
+  color: #fff;
+}
+
+/* ─── 유틸리티 ─── */
+
+.text-gradient-cyan {
+  background: linear-gradient(to right, #22d3ee, #60a5fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-green {
+  background: linear-gradient(to right, #4ade80, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-pink {
+  background: linear-gradient(to right, #f472b6, #fb7185);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-gold {
+  background: linear-gradient(to right, #facc15, #fb923c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.glass-hover:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.20);
+}
+
+.neon-text-green {
+  text-shadow: 0 0 10px rgba(0, 255, 135, 0.5), 0 0 30px rgba(0, 255, 135, 0.2);
+}
+
+.neon-text-cyan {
+  text-shadow: 0 0 10px rgba(0, 217, 255, 0.5), 0 0 30px rgba(0, 217, 255, 0.2);
+}
+
+.neon-text-pink {
+  text-shadow: 0 0 10px rgba(255, 0, 85, 0.5), 0 0 30px rgba(255, 0, 85, 0.2);
+}
+
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+}

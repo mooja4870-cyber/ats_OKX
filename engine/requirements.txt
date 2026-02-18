@@ -1,0 +1,32 @@
+# Engine (Python - 자동매매 엔진)
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# 업비트 API
+pyupbit>=0.2.33
+
+# 데이터 분석
+pandas>=2.1.0
+numpy>=1.26.0
+ta>=0.11.0              # 기술적 분석 지표
+
+# 스케줄링
+APScheduler>=3.10.0
+
+# AI
+openai>=1.6.0
+
+# 데이터베이스
+psycopg2-binary>=2.9.9
+supabase>=2.3.0
+
+# Redis
+redis>=5.0.0
+
+# HTTP
+httpx>=0.25.0
+aiohttp>=3.9.0
+
+# 유틸리티
+loguru>=0.7.0
