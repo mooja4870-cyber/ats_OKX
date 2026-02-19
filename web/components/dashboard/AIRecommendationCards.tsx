@@ -138,39 +138,44 @@ const FACTOR_META = [
 // ═══════════════════════════════════════════════════
 
 export function AIRecommendationCards() {
-    const { data: systemConfig } = useQuery<{ trading_mode?: string }>({
+    const { data: systemConfig } = useQuery<
+        { trading_mode?: string },
+        Error,
+        { trading_mode?: string },
+        string[]
+    >({
         queryKey: ['system-config'],
         queryFn: async () => {
             const res = await fetch('/api/system/config');
             if (!res.ok) {
                 throw new Error(`API ${res.status}`);
             }
-            return res.json();
+            return res.json() as Promise<{ trading_mode?: string }>;
         },
         refetchInterval: 10_000,
         staleTime: 5_000,
     });
 
-    const {
-        data: scores,
-        isLoading,
-        isError,
-        refetch,
-        isFetching,
-    } = useQuery<CoinScore[]>({
-        queryKey: ['coin-scores'],
-        queryFn: async () => {
-            const res = await fetch('/api/coins/scores');
-            if (!res.ok) throw new Error(`API ${res.status}`);
-            return res.json();
-        },
+    const fetchScores = async (): Promise<CoinScore[]> => {
+        const res = await fetch('/api/coins/scores');
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        return res.json();
+    };
+
+    const scoresQuery = useQuery({
+        queryKey: ['coin-scores'] as const,
+        queryFn: fetchScores,
         refetchInterval: 10_000,
         staleTime: 5_000,
         retry: 2,
-        retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+        retryDelay: (attempt: number) => Math.min(1000 * 2 ** attempt, 5000),
     });
 
-    const isLiveMode = (systemConfig?.trading_mode ?? 'paper').toLowerCase() === 'live';
+    const scores = scoresQuery.data as CoinScore[] | undefined;
+    const { isLoading, isError, refetch, isFetching } = scoresQuery;
+
+    const tradingMode = (systemConfig?.trading_mode ?? '').toLowerCase();
+    const allowManualBuy = tradingMode === 'paper';
 
     if (isLoading && (!scores || scores.length === 0)) {
         return <LoadingSkeleton />;
@@ -179,7 +184,7 @@ export function AIRecommendationCards() {
     if (!scores || scores.length === 0) {
         if (isError) {
             return (
-                <section className="mt-5 space-y-4">
+                <section className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-red-400/90">
                         <AlertCircle size={16} />
                         AI 추천 데이터를 불러오지 못했습니다. API/DB 상태를 확인해 주세요.
@@ -191,7 +196,7 @@ export function AIRecommendationCards() {
             );
         }
         return (
-            <section className="mt-5 space-y-4">
+            <section className="space-y-4">
                 <div className="text-sm text-white/70">
                     표시할 AI 추천 데이터가 없습니다.
                 </div>
@@ -203,7 +208,7 @@ export function AIRecommendationCards() {
     const sorted = [...scores].sort((a, b) => b.total_score - a.total_score);
 
     return (
-        <section className="mt-5 space-y-6">
+        <section className="space-y-6">
             {isError && (
                 <div className="flex items-center gap-2 text-xs text-yellow-300/90">
                     <AlertCircle size={14} />
@@ -247,7 +252,7 @@ export function AIRecommendationCards() {
                             coin={coin}
                             meta={COIN_META[coin.symbol] ?? { emoji: '🔷', name: coin.symbol, color: '#888' }}
                             index={index}
-                            allowManualBuy={!isLiveMode}
+                            allowManualBuy={allowManualBuy}
                         />
                     ))}
                 </AnimatePresence>
@@ -270,6 +275,26 @@ interface CoinCardProps {
 function CoinCard({ coin, meta, index, allowManualBuy }: CoinCardProps) {
     const config = SIGNAL_CONFIG[coin.signal];
     const SignalIcon = config.icon;
+    const signalText =
+        coin.signal === 'STRONG_BUY'
+            ? '강매수'
+            : coin.signal === 'BUY'
+                ? '매수'
+                : coin.signal === 'SELL'
+                    ? '매도'
+                    : '';
+    const signalDotClass =
+        coin.signal === 'STRONG_BUY'
+            ? 'bg-emerald-400'
+            : coin.signal === 'BUY'
+                ? 'bg-cyan-400'
+                : coin.signal === 'SELL'
+                    ? 'bg-rose-400'
+                    : 'bg-yellow-300';
+    const isPriceUp = typeof coin.price_change_24h === 'number' && coin.price_change_24h > 0;
+    const isPriceDown = typeof coin.price_change_24h === 'number' && coin.price_change_24h < 0;
+    const priceColorClass = isPriceUp ? 'text-red-400' : isPriceDown ? 'text-blue-400' : 'text-white';
+    const changeColorClass = isPriceUp ? 'text-red-400' : isPriceDown ? 'text-blue-400' : 'text-white';
 
     // 매수 핸들러
     const handleBuy = async () => {
@@ -338,46 +363,41 @@ function CoinCard({ coin, meta, index, allowManualBuy }: CoinCardProps) {
 
                 <div className="relative space-y-4">
                     {/* ── 헤더: 코인 + 시그널 배지 ── */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <span className="text-3xl drop-shadow-lg">{meta.emoji}</span>
-                            <div>
-                                <h3 className="text-lg font-bold text-white font-heading">
-                                    {coin.symbol}
-                                </h3>
-                                <span className="text-xs text-white/40">{meta.name}</span>
-                            </div>
-                        </div>
-
+                    <div className="relative">
                         {/* 시그널 배지 */}
                         <div
                             className={`
-                px-2.5 py-1 rounded-full flex items-center gap-1.5
+                absolute right-0 top-0 px-2.5 py-1 rounded-full flex items-center gap-1.5
                 ${config.bg} border border-white/10
               `}
                         >
-                            <SignalIcon
-                                size={14}
-                                className={config.iconColor}
-                            />
-                            <span className="text-[11px] font-bold text-white/90">
-                                {config.label}
-                            </span>
+                            <SignalIcon size={14} className={config.iconColor} />
+                            <span className={`w-2 h-2 rounded-full ${signalDotClass}`} />
+                            {signalText ? (
+                                <span className="text-[11px] font-bold text-white/90">
+                                    {signalText}
+                                </span>
+                            ) : null}
+                        </div>
+
+                        <div className="flex flex-col items-center text-center gap-0.5">
+                            <span className="text-3xl drop-shadow-lg">{meta.emoji}</span>
+                            <h3 className="text-lg font-bold text-white font-heading">
+                                {coin.symbol}
+                            </h3>
+                            <span className="text-xs text-white/40">{meta.name}</span>
                         </div>
                     </div>
 
                     {/* ── 현재가 ── */}
                     {coin.current_price && (
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-xl font-bold text-white font-mono">
+                        <div className="flex items-baseline justify-center gap-2 text-center">
+                            <span className={`text-xl font-bold font-mono ${priceColorClass}`}>
                                 ₩{coin.current_price.toLocaleString()}
                             </span>
                             {coin.price_change_24h !== undefined && (
                                 <span
-                                    className={`text-xs font-semibold ${coin.price_change_24h >= 0
-                                        ? 'text-green-400'
-                                        : 'text-pink-400'
-                                        }`}
+                                    className={`text-xs font-semibold ${changeColorClass}`}
                                 >
                                     {coin.price_change_24h >= 0 ? '+' : ''}
                                     {coin.price_change_24h.toFixed(2)}%
@@ -480,7 +500,7 @@ function CoinCard({ coin, meta, index, allowManualBuy }: CoinCardProps) {
 
 function LoadingSkeleton() {
     return (
-        <div className="mt-5 space-y-6">
+        <div className="space-y-6">
             <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
                 <div className="space-y-2">

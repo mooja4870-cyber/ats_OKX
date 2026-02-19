@@ -26,6 +26,16 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+# 로컬 실행 시 shared/.env, api/.env를 자동 로드
+_API_DIR = Path(__file__).resolve().parent
+_ROOT_DIR = _API_DIR.parent
+load_dotenv(_ROOT_DIR / "shared" / ".env", override=False)
+load_dotenv(_API_DIR / ".env", override=False)
 
 # ════════════════════════════════════════════════════
 # 로깅 설정

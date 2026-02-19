@@ -127,6 +127,7 @@ class BalanceResponse(BaseModel):
 
 FEE_RATE = 0.0005
 SUPPORTED_SYMBOLS = {"BTC", "ETH", "XRP", "SOL"}
+EXCLUDED_BALANCE_CURRENCIES = {"APENFT"}
 
 
 def _gen_trade_id() -> str:
@@ -246,24 +247,37 @@ def _get_live_price(symbol: str) -> Optional[float]:
 
 
 def _get_live_prices(symbols: List[str]) -> Dict[str, float]:
+    if not symbols:
+        return {}
+
+    norm_symbols = sorted({str(s).strip().upper() for s in symbols if str(s).strip()})
+    prices: Dict[str, float] = {}
+
     try:
         import pyupbit
 
-        markets = [f"KRW-{s}" for s in symbols]
+        markets = [f"KRW-{s}" for s in norm_symbols]
         result = pyupbit.get_current_price(markets)
-        prices: Dict[str, float] = {}
 
         if isinstance(result, dict):
             for market, price in result.items():
                 sym = market.replace("KRW-", "")
                 if price is not None:
                     prices[sym] = float(price)
-        elif isinstance(result, (int, float)) and len(symbols) == 1:
-            prices[symbols[0]] = float(result)
-
-        return prices
+        elif isinstance(result, (int, float)) and len(norm_symbols) == 1:
+            prices[norm_symbols[0]] = float(result)
     except Exception:
-        return {}
+        # 일부 마켓 코드 오류/네트워크 이슈가 있어도 단건 조회로 보완
+        pass
+
+    for symbol in norm_symbols:
+        if symbol in prices:
+            continue
+        p = _get_live_price(symbol)
+        if p is not None:
+            prices[symbol] = float(p)
+
+    return prices
 
 
 # ════════════════════════════════════════════════════
@@ -543,14 +557,16 @@ def _create_live_order(order: OrderRequest) -> OrderResponse:
 def _get_live_positions() -> List[dict]:
     balances = _get_live_balances_rows()
 
-    owned_symbols: List[str] = []
+    owned_symbols: set[str] = set()
     raw_rows: Dict[str, dict] = {}
 
     for row in balances:
         if not isinstance(row, dict):
             continue
         currency = str(row.get("currency", "")).upper()
-        if currency not in SUPPORTED_SYMBOLS:
+        if currency == "KRW":
+            continue
+        if currency in EXCLUDED_BALANCE_CURRENCIES:
             continue
 
         balance = _as_float(row.get("balance"))
@@ -559,14 +575,15 @@ def _get_live_positions() -> List[dict]:
         if volume <= 0:
             continue
 
-        owned_symbols.append(currency)
+        owned_symbols.add(currency)
         raw_rows[currency] = row
 
-    price_map = _get_live_prices(owned_symbols)
+    sorted_symbols = sorted(owned_symbols)
+    price_map = _get_live_prices(sorted_symbols)
     now_iso = datetime.now().isoformat()
 
     result: List[dict] = []
-    for symbol in owned_symbols:
+    for symbol in sorted_symbols:
         row = raw_rows[symbol]
         volume = _as_float(row.get("balance")) + _as_float(row.get("locked"))
         avg_buy_price = _as_float(row.get("avg_buy_price"))
@@ -592,7 +609,7 @@ def _get_live_positions() -> List[dict]:
             }
         )
 
-    return sorted(result, key=lambda x: x["symbol"])
+    return result
 
 
 def _get_live_trade_history(limit: int, symbol_filter: Optional[str]) -> List[dict]:
