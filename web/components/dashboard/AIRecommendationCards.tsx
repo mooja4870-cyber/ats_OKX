@@ -134,117 +134,82 @@ const FACTOR_META = [
 ] as const;
 
 // ═══════════════════════════════════════════════════
-// Mock 데이터 (API 미연결 시 폴백)
-// ═══════════════════════════════════════════════════
-
-function generateMockScores(): CoinScore[] {
-    const random = (min: number, max: number) =>
-        Math.round(min + Math.random() * (max - min));
-
-    return [
-        {
-            symbol: 'BTC',
-            name: 'Bitcoin',
-            current_price: 100_000_000 + random(-2_000_000, 2_000_000),
-            price_change_24h: parseFloat((Math.random() * 6 - 2).toFixed(2)),
-            technical_score: random(70, 95),
-            momentum_score: random(75, 95),
-            volatility_score: random(50, 80),
-            volume_score: random(60, 90),
-            sentiment_score: random(55, 85),
-            total_score: random(75, 93),
-            signal: 'STRONG_BUY',
-            confidence: random(70, 95),
-            reasoning: 'RSI 과매도 구간 탈출 + MACD 골든크로스 발생. 거래량 급증과 함께 상승 모멘텀이 강합니다.',
-        },
-        {
-            symbol: 'ETH',
-            name: 'Ethereum',
-            current_price: 3_900_000 + random(-200_000, 200_000),
-            price_change_24h: parseFloat((Math.random() * 8 - 3).toFixed(2)),
-            technical_score: random(55, 80),
-            momentum_score: random(60, 85),
-            volatility_score: random(45, 75),
-            volume_score: random(50, 80),
-            sentiment_score: random(50, 75),
-            total_score: random(55, 75),
-            signal: 'BUY',
-            confidence: random(55, 80),
-            reasoning: '볼린저 밴드 하단 근접. 단기 반등 가능성이 높으며, 이더리움 ETF 기대감이 반영되고 있습니다.',
-        },
-        {
-            symbol: 'XRP',
-            name: 'Ripple',
-            current_price: 850 + random(-50, 50),
-            price_change_24h: parseFloat((Math.random() * 4 - 2).toFixed(2)),
-            technical_score: random(35, 55),
-            momentum_score: random(30, 50),
-            volatility_score: random(40, 65),
-            volume_score: random(35, 55),
-            sentiment_score: random(40, 60),
-            total_score: random(35, 55),
-            signal: 'HOLD',
-            confidence: random(40, 60),
-            reasoning: '횡보 구간 지속 중. 지지선 ₩800 유지 시 반등 가능하나, 뚜렷한 방향성은 부재합니다.',
-        },
-        {
-            symbol: 'SOL',
-            name: 'Solana',
-            current_price: 220_000 + random(-15_000, 15_000),
-            price_change_24h: parseFloat((Math.random() * 10 - 4).toFixed(2)),
-            technical_score: random(60, 85),
-            momentum_score: random(65, 90),
-            volatility_score: random(40, 70),
-            volume_score: random(55, 80),
-            sentiment_score: random(50, 75),
-            total_score: random(60, 82),
-            signal: random(0, 1) > 0.5 ? 'BUY' : 'HOLD',
-            confidence: random(50, 78),
-            reasoning: 'DeFi TVL 증가세와 함께 기술적 지표가 개선되고 있습니다. 단기 변동성에 유의하세요.',
-        },
-    ];
-}
-
-// ═══════════════════════════════════════════════════
 // 메인 컴포넌트
 // ═══════════════════════════════════════════════════
 
 export function AIRecommendationCards() {
+    const { data: systemConfig } = useQuery<{ trading_mode?: string }>({
+        queryKey: ['system-config'],
+        queryFn: async () => {
+            const res = await fetch('/api/system/config');
+            if (!res.ok) {
+                throw new Error(`API ${res.status}`);
+            }
+            return res.json();
+        },
+        refetchInterval: 10_000,
+        staleTime: 5_000,
+    });
+
     const {
         data: scores,
         isLoading,
         isError,
-        error,
         refetch,
         isFetching,
     } = useQuery<CoinScore[]>({
         queryKey: ['coin-scores'],
         queryFn: async () => {
-            try {
-                const res = await fetch('/api/coins/scores');
-                if (!res.ok) throw new Error(`API ${res.status}`);
-                return res.json();
-            } catch {
-                // API 미연결 시 Mock 데이터 폴백
-                console.warn('[AIRecommendationCards] API 미연결 → Mock 데이터 사용');
-                return generateMockScores();
-            }
+            const res = await fetch('/api/coins/scores');
+            if (!res.ok) throw new Error(`API ${res.status}`);
+            return res.json();
         },
-        refetchInterval: 30_000,
-        staleTime: 15_000,
+        refetchInterval: 10_000,
+        staleTime: 5_000,
+        retry: 2,
+        retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
     });
 
-    if (isLoading) {
+    const isLiveMode = (systemConfig?.trading_mode ?? 'paper').toLowerCase() === 'live';
+
+    if (isLoading && (!scores || scores.length === 0)) {
         return <LoadingSkeleton />;
     }
 
-    const displayScores = scores ?? generateMockScores();
+    if (!scores || scores.length === 0) {
+        if (isError) {
+            return (
+                <section className="mt-5 space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-red-400/90">
+                        <AlertCircle size={16} />
+                        AI 추천 데이터를 불러오지 못했습니다. API/DB 상태를 확인해 주세요.
+                    </div>
+                    <NeonButton variant="danger" size="sm" onClick={() => refetch()}>
+                        다시 시도
+                    </NeonButton>
+                </section>
+            );
+        }
+        return (
+            <section className="mt-5 space-y-4">
+                <div className="text-sm text-white/70">
+                    표시할 AI 추천 데이터가 없습니다.
+                </div>
+            </section>
+        );
+    }
 
     // 점수 내림차순 정렬
-    const sorted = [...displayScores].sort((a, b) => b.total_score - a.total_score);
+    const sorted = [...scores].sort((a, b) => b.total_score - a.total_score);
 
     return (
-        <section className="space-y-6">
+        <section className="mt-5 space-y-6">
+            {isError && (
+                <div className="flex items-center gap-2 text-xs text-yellow-300/90">
+                    <AlertCircle size={14} />
+                    업비트 응답 지연으로 이전 데이터를 유지 중입니다.
+                </div>
+            )}
             {/* 섹션 헤더 */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -282,18 +247,11 @@ export function AIRecommendationCards() {
                             coin={coin}
                             meta={COIN_META[coin.symbol] ?? { emoji: '🔷', name: coin.symbol, color: '#888' }}
                             index={index}
+                            allowManualBuy={!isLiveMode}
                         />
                     ))}
                 </AnimatePresence>
             </div>
-
-            {/* 에러 토스트 */}
-            {isError && (
-                <div className="flex items-center gap-2 text-sm text-red-400/80">
-                    <AlertCircle size={14} />
-                    API 연결 실패 — Mock 데이터를 표시 중입니다
-                </div>
-            )}
         </section>
     );
 }
@@ -306,9 +264,10 @@ interface CoinCardProps {
     coin: CoinScore;
     meta: CoinMeta;
     index: number;
+    allowManualBuy: boolean;
 }
 
-function CoinCard({ coin, meta, index }: CoinCardProps) {
+function CoinCard({ coin, meta, index, allowManualBuy }: CoinCardProps) {
     const config = SIGNAL_CONFIG[coin.signal];
     const SignalIcon = config.icon;
 
@@ -323,25 +282,26 @@ function CoinCard({ coin, meta, index }: CoinCardProps) {
             return;
 
         try {
-            const res = await fetch('/api/trades/manual-order', {
+            const res = await fetch('/api/trades/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     symbol: coin.symbol,
                     side: 'BUY',
                     amount,
+                    order_type: 'MARKET',
                 }),
             });
 
             if (res.ok) {
                 toast.success(`${meta.emoji} ${coin.symbol} 매수 주문 완료!`, {
-                    description: `₩${amount.toLocaleString()} 지정가 주문`,
+                    description: `₩${amount.toLocaleString()} 시장가 주문`,
                 });
             } else {
-                const body = await res.json().catch(() => ({}));
-                toast.error(`매수 실패: ${body.error || res.statusText}`);
+                const body = await res.json().catch(() => ({} as { detail?: string }));
+                toast.error(`매수 실패: ${body.detail || res.statusText}`);
             }
-        } catch (err) {
+        } catch {
             toast.error('네트워크 오류가 발생했습니다');
         }
     };
@@ -497,7 +457,7 @@ function CoinCard({ coin, meta, index }: CoinCardProps) {
                     </div>
 
                     {/* ── CTA 버튼 ── */}
-                    {(coin.signal === 'STRONG_BUY' || coin.signal === 'BUY') && (
+                    {allowManualBuy && (coin.signal === 'STRONG_BUY' || coin.signal === 'BUY') && (
                         <NeonButton
                             variant="success"
                             size="sm"
@@ -520,7 +480,7 @@ function CoinCard({ coin, meta, index }: CoinCardProps) {
 
 function LoadingSkeleton() {
     return (
-        <div className="space-y-6">
+        <div className="mt-5 space-y-6">
             <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
                 <div className="space-y-2">

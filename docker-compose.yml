@@ -28,7 +28,6 @@ services:
     restart: always
     env_file: ./shared/.env
     environment:
-      - TRADING_MODE=paper
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379
       - PYTHONPATH=/app
@@ -37,6 +36,7 @@ services:
         condition: service_healthy
     volumes:
       - ./engine:/app/engine # 개발 시 핫 리로드
+      - ./shared:/app/shared
       - engine-logs:/app/logs
     command: python -m engine.main
     networks:

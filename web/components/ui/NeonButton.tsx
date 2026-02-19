@@ -12,7 +12,7 @@
  */
 
 import { motion, HTMLMotionProps } from 'framer-motion';
-import { ReactNode, forwardRef } from 'react';
+import { ReactNode } from 'react';
 
 type ButtonVariant = 'primary' | 'success' | 'danger' | 'warning' | 'ghost';
 type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';

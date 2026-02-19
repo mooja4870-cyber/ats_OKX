@@ -20,7 +20,7 @@ CryptoAI Master — FastAPI 메인 애플리케이션
     http://localhost:8000/docs
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -140,13 +140,19 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ════════════════════════════════════════════════════
 
 try:
-    from api.routes import coins, trades, system  # noqa: E402  — 로컬 (PYTHONPATH=.)
+    from api.routes import coins, trades, system, dashboard, strategies  # noqa: E402  — 로컬 (PYTHONPATH=.)
+    from api.websocket.manager import WebSocketManager  # noqa: E402
 except ImportError:
-    from routes import coins, trades, system  # noqa: E402  — Docker (WORKDIR=/app)
+    from routes import coins, trades, system, dashboard, strategies  # noqa: E402  — Docker (WORKDIR=/app)
+    from websocket.manager import WebSocketManager  # noqa: E402
 
 app.include_router(coins.router, prefix="/api/coins", tags=["🪙 코인"])
 app.include_router(trades.router, prefix="/api/trades", tags=["💰 매매"])
 app.include_router(system.router, prefix="/api/system", tags=["⚙️ 시스템"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["📊 대시보드"])
+app.include_router(strategies.router, prefix="/api/strategies", tags=["🎮 전략"])
+
+ws_manager = WebSocketManager()
 
 
 # ════════════════════════════════════════════════════
@@ -177,3 +183,16 @@ async def health():
         "service": "cryptoai-api",
         "version": "1.0.0",
     }
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """간단한 실시간 이벤트 WebSocket 엔드포인트."""
+    await ws_manager.connect(websocket)
+    await ws_manager.broadcast({"event": "system:connected", "message": "websocket connected"})
+    try:
+        while True:
+            message = await websocket.receive_text()
+            await ws_manager.broadcast({"event": "echo", "message": message})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)

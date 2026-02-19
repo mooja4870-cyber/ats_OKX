@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 import traceback
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Protocol
@@ -106,6 +107,11 @@ class TradingScheduler:
         self.discord = discord
         self.target_coins = target_coins or ["BTC", "ETH", "XRP", "SOL"]
         self.paused = paused
+        self.collect_interval_min = self._env_minutes("DATA_COLLECTION_INTERVAL", 5)
+        self.indicator_interval_min = self._env_minutes("INDICATOR_CALC_INTERVAL", 15)
+        self.scoring_interval_min = self._env_minutes("SCORING_INTERVAL", 30)
+        self.buy_interval_min = self._env_minutes("BUY_EXECUTION_INTERVAL", 30)
+        self.risk_interval_min = self._env_minutes("RISK_CHECK_INTERVAL", 5)
 
         # 실행 통계
         self.stats: Dict[str, Dict[str, Any]] = {
@@ -138,9 +144,28 @@ class TradingScheduler:
         self._register_jobs()
 
         logger.info(
-            "TradingScheduler 초기화 완료 | 코인=%s | paused=%s",
-            self.target_coins, self.paused,
+            "TradingScheduler 초기화 완료 | 코인=%s | paused=%s | 수집=%d분 | 지표=%d분 | 스코어=%d분 | 매수=%d분 | 리스크=%d분",
+            self.target_coins,
+            self.paused,
+            self.collect_interval_min,
+            self.indicator_interval_min,
+            self.scoring_interval_min,
+            self.buy_interval_min,
+            self.risk_interval_min,
         )
+
+    @staticmethod
+    def _env_minutes(name: str, default: int) -> int:
+        """분 단위 환경변수 값을 읽고 최소 1분으로 보정합니다."""
+        raw = os.environ.get(name)
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            logger.warning("환경변수 %s=%r 파싱 실패 → 기본값 %d분 사용", name, raw, default)
+            return default
+        return max(1, value)
 
     # ─────────────────────────────────────────────
     # 크론잡 등록
@@ -151,33 +176,33 @@ class TradingScheduler:
         jobs = [
             {
                 "func": self._job_collect_data,
-                "trigger": IntervalTrigger(minutes=5),
+                "trigger": IntervalTrigger(minutes=self.collect_interval_min),
                 "id": "collect_data",
-                "name": "📊 데이터 수집 (5분)",
+                "name": f"📊 데이터 수집 ({self.collect_interval_min}분)",
             },
             {
                 "func": self._job_calc_indicators,
-                "trigger": IntervalTrigger(minutes=15),
+                "trigger": IntervalTrigger(minutes=self.indicator_interval_min),
                 "id": "calc_indicators",
-                "name": "📈 지표 계산 (15분)",
+                "name": f"📈 지표 계산 ({self.indicator_interval_min}분)",
             },
             {
                 "func": self._job_scoring,
-                "trigger": IntervalTrigger(minutes=30),
+                "trigger": IntervalTrigger(minutes=self.scoring_interval_min),
                 "id": "scoring",
-                "name": "🧠 AI 스코어링 (30분)",
+                "name": f"🧠 AI 스코어링 ({self.scoring_interval_min}분)",
             },
             {
                 "func": self._job_execute_buy,
-                "trigger": CronTrigger(minute="0,30"),
+                "trigger": IntervalTrigger(minutes=self.buy_interval_min),
                 "id": "execute_buy",
-                "name": "💰 매수 실행 (매시 :00, :30)",
+                "name": f"💰 매수 실행 ({self.buy_interval_min}분)",
             },
             {
                 "func": self._job_risk_check,
-                "trigger": IntervalTrigger(minutes=5),
+                "trigger": IntervalTrigger(minutes=self.risk_interval_min),
                 "id": "risk_check",
-                "name": "🛡️ 리스크 체크 (5분)",
+                "name": f"🛡️ 리스크 체크 ({self.risk_interval_min}분)",
             },
             {
                 "func": self._job_llm_feedback,

@@ -11,6 +11,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+!web/lib/
+!web/lib/design-system/
+web/lib/design-system/*
+!web/lib/design-system/tokens.ts
 lib64/
 parts/
 sdist/

@@ -1,71 +1,49 @@
-"""
-시스템 API — /api/system/*
+"""시스템 API — /api/system/*"""
 
-■ 엔드포인트:
-    GET /api/system/status     → 시스템 전체 상태
-    GET /api/system/scheduler  → 스케줄러 잡 상태
-    GET /api/system/config     → 현재 설정값
-    GET /api/system/logs       → 최근 로그 (제한)
-"""
+from __future__ import annotations
 
+import os
+import platform
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import logging
-import platform
-import os
-
-logger = logging.getLogger("cryptoai.api.system")
 
 router = APIRouter()
 
 
-# ════════════════════════════════════════════════════
-# Pydantic 스키마
-# ════════════════════════════════════════════════════
-
 class JobStatus(BaseModel):
-    """스케줄러 잡 상태"""
-
     job_id: str
-    name: str = Field(..., description="잡 표시명")
-    schedule: str = Field(..., description="크론 스케줄", examples=["every 1h"])
-    last_run: Optional[str] = Field(None, description="마지막 실행 시각")
-    next_run: Optional[str] = Field(None, description="다음 실행 예정 시각")
-    status: str = Field(..., description="idle | running | error")
-    run_count: int = Field(0, description="누적 실행 횟수")
-    error_count: int = Field(0, description="누적 에러 횟수")
+    name: str
+    schedule: str
+    last_run: Optional[str] = None
+    next_run: Optional[str] = None
+    status: str = "configured"
+    run_count: int = 0
+    error_count: int = 0
 
 
 class SchedulerStatus(BaseModel):
-    """스케줄러 전체 상태"""
-
     is_running: bool
-    trading_mode: str = Field(..., description="paper | live")
+    trading_mode: str
     uptime_seconds: float
     jobs: List[JobStatus]
 
 
 class SystemStatus(BaseModel):
-    """시스템 전체 상태"""
-
     api_version: str
-    status: str = Field(..., description="healthy | degraded | error")
+    status: str
     trading_mode: str
+    trading_paused: bool = False
     uptime_seconds: float
     python_version: str
     os_info: str
-    components: Dict[str, str] = Field(
-        ...,
-        description="컴포넌트별 상태",
-        examples=[{"database": "connected", "scheduler": "running"}],
-    )
+    components: Dict[str, str]
 
 
 class ConfigResponse(BaseModel):
-    """설정값 응답 (민감 정보 제외)"""
-
     trading_mode: str
     target_coins: List[str]
     scoring_weights: Dict[str, float]
@@ -74,149 +52,102 @@ class ConfigResponse(BaseModel):
 
 
 class LogEntry(BaseModel):
-    """로그 항목"""
-
     timestamp: str
     level: str
     logger_name: str
     message: str
 
 
-# ════════════════════════════════════════════════════
-# 서버 시작 시각 기록
-# ════════════════════════════════════════════════════
+class PauseResponse(BaseModel):
+    paused: bool
+    message: str
+    updated_at: str
+
 
 _server_start = datetime.now()
+_trading_paused = False
 
 
 def _uptime() -> float:
     return (datetime.now() - _server_start).total_seconds()
 
 
-# ════════════════════════════════════════════════════
-# Mock 데이터
-# ════════════════════════════════════════════════════
-
-def _mock_scheduler_status() -> dict:
-    """Mock 스케줄러 상태"""
-    now_iso = datetime.now().isoformat()
-    return {
-        "is_running": True,
-        "trading_mode": "paper",
-        "uptime_seconds": _uptime(),
-        "jobs": [
-            {
-                "job_id": "data_collection",
-                "name": "📥 데이터 수집",
-                "schedule": "every 1h",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 24,
-                "error_count": 0,
-            },
-            {
-                "job_id": "indicator_calc",
-                "name": "📊 지표 계산",
-                "schedule": "every 1h (수집 후 5분)",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 24,
-                "error_count": 1,
-            },
-            {
-                "job_id": "scoring",
-                "name": "🧠 AI 스코어링",
-                "schedule": "every 1h (지표 후 5분)",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 24,
-                "error_count": 0,
-            },
-            {
-                "job_id": "execute_buy",
-                "name": "💰 매수 실행",
-                "schedule": "every 4h",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 6,
-                "error_count": 0,
-            },
-            {
-                "job_id": "risk_check",
-                "name": "🛡️ 리스크 체크",
-                "schedule": "every 5min",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 288,
-                "error_count": 2,
-            },
-            {
-                "job_id": "llm_feedback",
-                "name": "📝 LLM 피드백",
-                "schedule": "daily 09:00 KST",
-                "last_run": now_iso,
-                "next_run": now_iso,
-                "status": "idle",
-                "run_count": 1,
-                "error_count": 0,
-            },
-        ],
-    }
+def _env_minutes(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
 
 
-def _check_component(name: str) -> str:
-    """컴포넌트 상태 확인"""
-    if name == "database":
-        try:
-            from database.db_manager import DBManager
-            DBManager()
+def _check_database() -> str:
+    try:
+        from database.db_manager import DBManager
+
+        DBManager().execute_query("SELECT 1")
+        return "connected"
+    except Exception:
+        return "disconnected"
+
+
+def _check_upbit() -> str:
+    try:
+        response = httpx.get(
+            "https://api.upbit.com/v1/ticker",
+            params={"markets": "KRW-BTC"},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if isinstance(rows, list) and rows:
             return "connected"
-        except Exception:
-            return "disconnected (mock mode)"
-    elif name == "scheduler":
-        return "running (mock)"
-    elif name == "upbit_api":
-        try:
-            import pyupbit
-            p = pyupbit.get_current_price("KRW-BTC")
-            return "connected" if p else "error"
-        except Exception:
-            return "disconnected"
-    elif name == "redis":
-        return "disconnected (optional)"
-    return "unknown"
+        return "error"
+    except Exception:
+        return "disconnected"
 
 
-# ════════════════════════════════════════════════════
-# 엔드포인트
-# ════════════════════════════════════════════════════
-
-@router.get(
-    "/status",
-    response_model=SystemStatus,
-    summary="시스템 전체 상태",
-    description="API 서버, DB, 스케줄러 등 전체 시스템 상태를 반환합니다.",
-)
-async def get_system_status():
-    """시스템 전체 상태"""
-
-    components = {
-        "database": _check_component("database"),
-        "scheduler": _check_component("scheduler"),
-        "upbit_api": _check_component("upbit_api"),
-        "redis": _check_component("redis"),
+def _schedule_intervals() -> Dict[str, str]:
+    collect = _env_minutes("DATA_COLLECTION_INTERVAL", 5)
+    indicator = _env_minutes("INDICATOR_CALC_INTERVAL", 15)
+    scoring = _env_minutes("SCORING_INTERVAL", 30)
+    buy = _env_minutes("BUY_EXECUTION_INTERVAL", 30)
+    risk = _env_minutes("RISK_CHECK_INTERVAL", 5)
+    return {
+        "data_collection": f"every {collect}min",
+        "indicator_calc": f"every {indicator}min",
+        "scoring": f"every {scoring}min",
+        "execute_buy": f"every {buy}min",
+        "risk_check": f"every {risk}min",
+        "llm_feedback": "daily 00:30 KST",
     }
 
-    # 전체 상태 결정
-    comp_values = list(components.values())
-    if all("connected" in v or "running" in v for v in comp_values):
+
+def _scheduler_jobs() -> List[JobStatus]:
+    intervals = _schedule_intervals()
+    return [
+        JobStatus(job_id="collect_data", name="데이터 수집", schedule=intervals["data_collection"]),
+        JobStatus(job_id="calc_indicators", name="지표 계산", schedule=intervals["indicator_calc"]),
+        JobStatus(job_id="scoring", name="AI 스코어링", schedule=intervals["scoring"]),
+        JobStatus(job_id="execute_buy", name="매수 실행", schedule=intervals["execute_buy"]),
+        JobStatus(job_id="risk_check", name="리스크 체크", schedule=intervals["risk_check"]),
+        JobStatus(job_id="llm_feedback", name="AI 피드백", schedule=intervals["llm_feedback"]),
+    ]
+
+
+@router.get("/status", response_model=SystemStatus, summary="시스템 전체 상태")
+async def get_system_status():
+    components = {
+        "database": _check_database(),
+        "scheduler": "configured",
+        "upbit_api": _check_upbit(),
+        "redis": "optional",
+    }
+    values = list(components.values())
+    if all(value in ("connected", "configured", "optional") for value in values):
         status = "healthy"
-    elif any("error" in v for v in comp_values):
+    elif any(value == "error" for value in values):
         status = "error"
     else:
         status = "degraded"
@@ -225,6 +156,7 @@ async def get_system_status():
         api_version="1.0.0",
         status=status,
         trading_mode=os.environ.get("TRADING_MODE", "paper"),
+        trading_paused=_trading_paused,
         uptime_seconds=round(_uptime(), 1),
         python_version=platform.python_version(),
         os_info=f"{platform.system()} {platform.release()}",
@@ -232,31 +164,26 @@ async def get_system_status():
     )
 
 
-@router.get(
-    "/scheduler",
-    response_model=SchedulerStatus,
-    summary="스케줄러 상태",
-    description="APScheduler 잡 목록과 실행 통계를 반환합니다.",
-)
+@router.get("/scheduler", response_model=SchedulerStatus, summary="스케줄러 상태")
 async def get_scheduler_status():
-    """스케줄러 잡 상태"""
+    return SchedulerStatus(
+        is_running=True,
+        trading_mode=os.environ.get("TRADING_MODE", "paper"),
+        uptime_seconds=round(_uptime(), 1),
+        jobs=_scheduler_jobs(),
+    )
 
-    # TODO: 실제 TradingScheduler.get_stats() 연동
-    return _mock_scheduler_status()
 
-
-@router.get(
-    "/config",
-    response_model=ConfigResponse,
-    summary="현재 설정값",
-    description="민감 정보(API 키 등)를 제외한 현재 설정을 반환합니다.",
-)
+@router.get("/config", response_model=ConfigResponse, summary="현재 설정값")
 async def get_config():
-    """현재 설정값 (민감 정보 제외)"""
-
+    target_coins = [
+        coin.strip().upper()
+        for coin in os.environ.get("TARGET_COINS", "BTC,ETH,XRP,SOL").split(",")
+        if coin.strip()
+    ]
     return ConfigResponse(
         trading_mode=os.environ.get("TRADING_MODE", "paper"),
-        target_coins=["BTC", "ETH", "XRP", "SOL"],
+        target_coins=target_coins,
         scoring_weights={
             "technical": 0.30,
             "momentum": 0.25,
@@ -265,70 +192,42 @@ async def get_config():
             "sentiment": 0.15,
         },
         risk_params={
-            "stop_loss_pct": -3.0,
-            "take_profit_pct": 5.0,
-            "trailing_stop_pct": -2.0,
-            "max_holding_hours": 72,
-            "daily_loss_limit_pct": -5.0,
+            "stop_loss_pct": float(os.environ.get("STOP_LOSS_PCT", "-3.0")),
+            "take_profit_pct": float(os.environ.get("TAKE_PROFIT_PCT", "5.0")),
+            "trailing_stop_pct": float(os.environ.get("TRAILING_STOP_PCT", "-2.0")),
+            "max_holding_hours": int(os.environ.get("MAX_HOLDING_HOURS", "72")),
+            "daily_loss_limit_pct": float(os.environ.get("DAILY_LOSS_LIMIT_PCT", "-5.0")),
         },
-        schedule_intervals={
-            "data_collection": "every 1h",
-            "indicator_calc": "every 1h (수집 후 5분)",
-            "scoring": "every 1h (지표 후 5분)",
-            "execute_buy": "every 4h",
-            "risk_check": "every 5min",
-            "llm_feedback": "daily 09:00 KST",
-        },
+        schedule_intervals=_schedule_intervals(),
     )
 
 
-@router.get(
-    "/logs",
-    response_model=List[LogEntry],
-    summary="최근 로그",
-    description="최근 시스템 로그를 반환합니다 (최대 50건).",
-)
+@router.get("/logs", response_model=List[LogEntry], summary="최근 로그")
 async def get_recent_logs(
-    limit: int = Query(default=20, ge=1, le=50, description="조회 건수"),
-    level: Optional[str] = Query(default=None, description="레벨 필터 (INFO/WARNING/ERROR)"),
+    limit: int = Query(default=20, ge=1, le=50),
+    level: Optional[str] = Query(default=None),
 ):
-    """최근 로그"""
+    _ = (limit, level)
+    return []
 
-    # TODO: 실제 로그 파일/DB에서 조회
-    mock_logs = [
-        {
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "logger_name": "cryptoai.scheduler",
-            "message": "[스코어링] BTC: 82.3점 (STRONG_BUY), ETH: 64.1점 (BUY)",
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "logger_name": "cryptoai.order",
-            "message": "[매수] BTC ₩100,000 LIMIT 주문 접수 (가격: ₩143,100,000)",
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "level": "WARNING",
-            "logger_name": "cryptoai.risk",
-            "message": "[리스크] SOL 트레일링 스탑 -1.8% 접근 중 (현재: -1.5%)",
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "logger_name": "cryptoai.data",
-            "message": "[데이터] BTC 1h 캔들 168개 수집 완료 (7일)",
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "level": "ERROR",
-            "logger_name": "cryptoai.upbit",
-            "message": "[API] 업비트 요청 타임아웃 (5s) — 재시도 1/3",
-        },
-    ]
 
-    if level:
-        mock_logs = [l for l in mock_logs if l["level"] == level.upper()]
+@router.post("/pause", response_model=PauseResponse, summary="자동매매 일시정지")
+async def pause_trading():
+    global _trading_paused
+    _trading_paused = True
+    return PauseResponse(
+        paused=True,
+        message="자동매매가 일시정지되었습니다",
+        updated_at=datetime.now().isoformat(),
+    )
 
-    return mock_logs[:limit]
+
+@router.post("/resume", response_model=PauseResponse, summary="자동매매 재개")
+async def resume_trading():
+    global _trading_paused
+    _trading_paused = False
+    return PauseResponse(
+        paused=False,
+        message="자동매매가 재개되었습니다",
+        updated_at=datetime.now().isoformat(),
+    )

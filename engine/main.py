@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -46,16 +47,49 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("engine.main")
+# httpx INFO 로그에 webhook URL이 노출될 수 있어 경고 이상만 출력
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def _persist_total_budget_to_env(new_budget: int) -> None:
+    """shared/.env의 TOTAL_BUDGET 값을 업데이트합니다."""
+    env_path = os.environ.get("TOTAL_BUDGET_ENV_FILE", "/app/shared/.env")
+    if not os.path.exists(env_path):
+        logger.warning("[예산 동기화] .env 파일을 찾을 수 없어 파일 갱신을 건너뜁니다: %s", env_path)
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        updated = False
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("TOTAL_BUDGET="):
+                comment = ""
+                if "#" in line:
+                    comment = "  #" + line.split("#", 1)[1].strip()
+                lines[i] = f"TOTAL_BUDGET={new_budget}{comment}\n"
+                updated = True
+                break
+
+        if not updated:
+            lines.append(f"\nTOTAL_BUDGET={new_budget}\n")
+
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        logger.info("[예산 동기화] .env TOTAL_BUDGET 갱신 완료: ₩%s", f"{new_budget:,.0f}")
+    except Exception as e:
+        logger.warning("[예산 동기화] .env 파일 갱신 실패: %s", e)
 
 
 # ═══════════════════════════════════════════════════
-# 임시 Mock 클래스 (DB/Discord — 추후 실제 모듈로 교체)
+# 개발용 인메모리 클래스
 # ═══════════════════════════════════════════════════
 
-class MockDBManager:
-    """임시 Mock DB 매니저.
+class InMemoryDBManager:
+    """개발용 인메모리 DB 매니저.
 
-    실제 Supabase db_manager.py 완성 전까지 사용합니다.
     모의투자 잔고와 포지션을 메모리에 저장합니다.
     """
 
@@ -68,7 +102,7 @@ class MockDBManager:
 
     # ── 스코어링 ──
     def get_latest_indicators(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Mock 기술지표 데이터를 반환합니다."""
+        """임시 기술지표 데이터를 반환합니다."""
         import random
         base_prices = {
             "BTC": 143_000_000, "ETH": 4_800_000,
@@ -124,7 +158,7 @@ class MockDBManager:
     def insert_trade_order(self, order: Dict[str, Any]) -> None:
         order["id"] = len(self._trades) + 1
         self._trades.append(order)
-        logger.debug("[MockDB] 거래 기록 저장: %s", order.get("symbol"))
+        logger.debug("[InMemoryDB] 거래 기록 저장: %s", order.get("symbol"))
 
     def upsert_position(self, position: Dict[str, Any]) -> None:
         existing = next(
@@ -175,11 +209,8 @@ class MockDBManager:
         self._feedbacks.append(feedback)
 
 
-class MockDiscord:
-    """임시 Mock Discord 알림기.
-
-    실제 discord_notifier.py 완성 전까지 로그로 출력합니다.
-    """
+class LoggingDiscordNotifier:
+    """웹훅 미설정 시 로그만 남기는 알림기."""
 
     def send_trade_alert(self, data: Dict[str, Any]) -> None:
         logger.info("📢 [Discord] 매매 알림: %s %s ₩%s",
@@ -220,6 +251,7 @@ def create_engine(
     from engine.config.settings import get_settings
     from engine.layer4_execution.order_manager import OrderManager
     from engine.layer4_execution.risk_manager import RiskManager
+    from engine.notifications.discord_notifier import DiscordNotifier
     from engine.scheduler.cron_jobs import TradingScheduler
 
     # 설정 로드
@@ -242,11 +274,31 @@ def create_engine(
 
         settings = FallbackSettings()
 
-    # DB (Mock → 추후 Supabase로 교체)
-    db = MockDBManager(initial_balance=initial_balance)
+    # 개발용 인메모리 DB
+    db = InMemoryDBManager(initial_balance=initial_balance)
 
     # 주문 매니저
     order_mgr = OrderManager(db_manager=db, settings=settings)
+
+    # live 모드에서는 TOTAL_BUDGET을 실계좌 KRW 잔고로 자동 동기화
+    if getattr(settings, "trading_mode", "paper") == "live":
+        try:
+            live_balance = order_mgr.get_balance()
+            live_krw = float(live_balance.get("KRW", 0))
+            if live_krw > 0:
+                synced_budget = max(1, int(live_krw))
+                prev_budget = int(getattr(settings, "total_budget", 0))
+                settings.total_budget = synced_budget
+                logger.info(
+                    "[예산 동기화] TOTAL_BUDGET: ₩%s → ₩%s (업비트 실잔고 기준)",
+                    f"{prev_budget:,.0f}",
+                    f"{synced_budget:,.0f}",
+                )
+                _persist_total_budget_to_env(synced_budget)
+            else:
+                logger.warning("[예산 동기화] 업비트 KRW 잔고가 0원이거나 조회 실패로 기존 TOTAL_BUDGET 유지")
+        except Exception as e:
+            logger.warning("[예산 동기화] 실잔고 조회 실패로 기존 TOTAL_BUDGET 유지: %s", e)
 
     # 리스크 매니저
     risk_mgr = RiskManager(
@@ -254,8 +306,14 @@ def create_engine(
         take_profit_pct=settings.take_profit_pct,
     )
 
-    # Discord (Mock → 추후 실제로 교체)
-    discord = MockDiscord()
+    # Discord (웹훅이 설정되면 실제 전송기 사용)
+    webhook_url = getattr(settings, "discord_webhook_url", "")
+    if webhook_url and "discord.com/api/webhooks/" in webhook_url:
+        discord = DiscordNotifier(webhook_url=webhook_url)
+        logger.info("Discord 알림기 초기화 완료 | webhook=설정됨")
+    else:
+        discord = LoggingDiscordNotifier()
+        logger.warning("Discord 웹훅 미설정/형식오류 → 로그 알림기로 동작")
 
     # 스케줄러
     scheduler = TradingScheduler(
@@ -284,7 +342,7 @@ def test_run() -> None:
     from engine.layer4_execution.order_manager import OrderManager
     from engine.layer4_execution.risk_manager import RiskManager
 
-    db = MockDBManager(initial_balance=1_000_000)
+    db = InMemoryDBManager(initial_balance=1_000_000)
 
     class FallbackSettings:
         trading_mode = "paper"
@@ -321,7 +379,7 @@ def test_run() -> None:
         logger.info("\n💰 [3/4] 예산 배분")
         logger.info("-" * 40)
 
-        # Mock 현재가 (pyupbit 없이)
+        # 테스트용 현재가
         current_prices = {
             "BTC": 143_000_000, "ETH": 4_800_000,
             "XRP": 3_500, "SOL": 285_000,
@@ -345,7 +403,7 @@ def test_run() -> None:
         )
 
         # 가상 포지션
-        mock_positions = [
+        sample_positions = [
             {
                 "symbol": "BTC",
                 "avg_buy_price": 145_000_000,
@@ -354,7 +412,7 @@ def test_run() -> None:
                 "highest_price": 148_000_000,
             },
         ]
-        actions = risk_mgr.check_positions(mock_positions, current_prices)
+        actions = risk_mgr.check_positions(sample_positions, current_prices)
         for a in actions:
             logger.info("  %s", a)
 

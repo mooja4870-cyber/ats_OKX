@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     ohlcv_interval_min: int = 5
     scoring_interval_min: int = 30
     data_collection_interval: int = 60
+    indicator_calc_interval: int = 15
     scoring_interval: int = 60
     buy_execution_interval: int = 240
     risk_check_interval: int = 5

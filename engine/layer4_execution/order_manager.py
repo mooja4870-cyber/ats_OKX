@@ -14,9 +14,15 @@ from __future__ import annotations
 
 import logging
 import time
+import hashlib
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from urllib.parse import urlencode
 from typing import Any, Dict, List, Optional, Protocol
+
+import httpx
+import jwt
 
 logger = logging.getLogger(__name__)
 
@@ -321,8 +327,7 @@ class OrderManager:
             return self.db.get_paper_balance()
 
         try:
-            import pyupbit
-            balances = self.upbit.get_balances()
+            balances = self._upbit_private_request("GET", "/v1/accounts")
             result: Dict[str, Any] = {"KRW": 0.0, "coins": {}}
 
             if not isinstance(balances, list):
@@ -573,6 +578,58 @@ class OrderManager:
     def _is_paper_mode(self) -> bool:
         """모의투자 모드 여부."""
         return self.settings.trading_mode != "live" or self.upbit is None
+
+    def _upbit_private_request(
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """업비트 Private API 호출.
+
+        pyupbit private 응답 파싱 이슈를 우회하기 위해 직접 JWT 요청을 사용합니다.
+        """
+        access_key = (self.settings.upbit_api_key or "").strip()
+        secret_key = (self.settings.upbit_secret_key or "").strip()
+        if not access_key or not secret_key:
+            raise RuntimeError("업비트 API 키가 비어 있습니다")
+
+        payload: Dict[str, Any] = {
+            "access_key": access_key,
+            "nonce": str(uuid.uuid4()),
+        }
+        if params:
+            query_string = urlencode(params, doseq=True)
+            payload["query_hash"] = hashlib.sha512(query_string.encode()).hexdigest()
+            payload["query_hash_alg"] = "SHA512"
+
+        token = jwt.encode(payload, secret_key, algorithm="HS256")
+        if isinstance(token, bytes):
+            token = token.decode()
+
+        response = httpx.request(
+            method=method.upper(),
+            url=f"https://api.upbit.com{path}",
+            params=params if params else None,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+
+        body: Any
+        try:
+            body = response.json()
+        except Exception:
+            body = {"error": {"message": response.text or "응답 파싱 실패"}}
+
+        if response.status_code >= 400:
+            msg = "업비트 요청 실패"
+            if isinstance(body, dict):
+                err = body.get("error")
+                if isinstance(err, dict):
+                    msg = str(err.get("message") or err.get("name") or msg)
+            raise RuntimeError(f"{msg} (HTTP {response.status_code})")
+
+        return body
 
     def _save_failed_order(
         self,

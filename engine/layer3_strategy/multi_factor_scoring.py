@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 class DBManagerProtocol(Protocol):
     """데이터베이스 매니저가 구현해야 할 인터페이스.
 
-    실제 Supabase DBManager 또는 테스트용 Mock 모두 이 프로토콜을 따릅니다.
+    실제 Supabase DBManager 또는 테스트 대역 객체 모두 이 프로토콜을 따릅니다.
     """
 
     def get_latest_indicators(self, symbol: str) -> Optional[Dict[str, Any]]:
