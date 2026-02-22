@@ -1,0 +1,32 @@
+# ═══════════════════════════════════════════
+#  거래 페어별 세부 설정 (OKX)
+# ═══════════════════════════════════════════
+
+pairs:
+  "BTC/USDT:USDT":
+    name: "비트코인"
+    take_profit_pct: 0.007        # 0.7%
+    stop_loss_pct: 0.008          # 0.8%
+    min_order_amount: 5            # 최소 주문금액 (USDT)
+    category: "major"
+
+  "ETH/USDT:USDT":
+    name: "이더리움"
+    take_profit_pct: 0.010        # 1.0%
+    stop_loss_pct: 0.010          # 1.0%
+    min_order_amount: 5
+    category: "alt"
+
+  "XRP/USDT:USDT":
+    name: "리플"
+    take_profit_pct: 0.012        # 1.2%
+    stop_loss_pct: 0.010          # 1.0%
+    min_order_amount: 5
+    category: "alt"
+
+  "SOL/USDT:USDT":
+    name: "솔라나"
+    take_profit_pct: 0.012        # 1.2%
+    stop_loss_pct: 0.010          # 1.0%
+    min_order_amount: 5
+    category: "alt"

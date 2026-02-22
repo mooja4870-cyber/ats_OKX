@@ -1,0 +1,31 @@
+# ═══════════════════════════════════════════
+#  리스크 관리 전용 설정 (OKX)
+# ═══════════════════════════════════════════
+
+risk_management:
+  # 1회 매매 리스크
+  risk_per_trade_min_pct: 0.003   # 0.3%
+  risk_per_trade_max_pct: 0.005   # 0.5%
+
+  # 일일 한도
+  max_daily_loss_pct: 0.01        # 1.0%
+
+  # 연속 손실 관리
+  max_consecutive_losses: 2       # 2연패 시 당일 종료
+
+  # 수수료 (OKX 기준)
+  fee_rate: 0.0005                # 편도 taker 0.05%
+  fee_rate_maker: 0.0002          # maker 0.02%
+  fee_rate_taker: 0.0005          # taker 0.05%
+
+  # 비상 정지
+  emergency:
+    enabled: true
+    drop_pct: 0.03                # 5분 내 3% 급락
+    action: "close_all_and_stop"
+
+  # 최소 진입 조건
+  min_expected_move_pct: 0.01     # 1% 이상 이동폭 기대 시만 진입
+
+  # 마진/레버리지 안전장치
+  max_margin_ratio: 0.8           # 마진비율 80% 초과 시 신규 진입 차단

@@ -1,0 +1,84 @@
+trading:
+  mode: "paper"
+  market_type: "swap"           # spot / swap / both
+  pairs:
+    - "BTC/USDT:USDT"
+    - "ETH/USDT:USDT"
+    - "XRP/USDT:USDT"
+    - "SOL/USDT:USDT"
+  timeframe_main: "5m"
+  timeframe_entry: "1m"
+  timeframe_trend: "1h"
+  max_hold_minutes: 60
+  loop_interval_seconds: 10
+  buy_min_score: 60
+  buy_require_all_conditions: false
+  buy_min_conditions: 4
+
+  # 선물 전용 설정
+  leverage: 10                  # 레버리지 배수 (1 = 무레버리지)
+  margin_mode: "isolated"       # isolated / cross
+
+indicators:
+  ema_fast: 9
+  ema_slow: 21
+  rsi_period: 14
+  rsi_buy_min: 30
+  rsi_buy_max: 70
+  rsi_oversold: 30
+  bb_period: 20
+  bb_std: 2.0
+  volume_multiplier: 1.1
+  vwap_enabled: true
+
+risk:
+  initial_capital: 10000
+  fixed_order_amount_usdt: 100
+  risk_per_trade_pct: 0.01
+  max_daily_loss_pct: 0.07
+  stop_loss_pct: 0.010
+  take_profit_pct:
+    "BTC/USDT:USDT": 0.007
+    "ETH/USDT:USDT": 0.010
+    "XRP/USDT:USDT": 0.012
+    "SOL/USDT:USDT": 0.012
+  max_consecutive_losses: 5
+  # 포지션 사이징 개선
+  margin_per_ticker_pct: 0.03    # 기본 진입 마진 (총자산의 3%)
+  max_total_margin_pct: 0.20     # 총 마진 사용 한도 (총자산의 20%)
+  min_available_balance_pct: 0.5 # 신규 진입을 위한 최소 가용잔고 (총자산의 50%)
+  target_atr_pct: 0.003          # 기준 ATR% (0.3%)
+  max_per_ticker_pct: 0.04       # 티커당 최대 마진 캡 (4%)
+  
+  fee_rate: 0.0005              # taker 0.05%
+  fee_rate_maker: 0.0002        # maker 0.02%
+  emergency_drop_pct: 0.03
+  min_expected_move_pct: 0.01
+
+schedule:
+  always_on: true
+  sessions:
+    - start: "08:00"
+      end: "16:00"
+    - start: "16:00"
+      end: "00:00"
+    - start: "00:00"
+      end: "08:00"
+  no_entry_before_end_minutes: 15
+  timezone: "Asia/Seoul"
+  daily_reset_time: "00:00"
+
+discord:
+  balance_snapshot_interval_seconds: 60
+  report_1m_interval_seconds: 60
+  report_5m_interval_seconds: 300
+  report_15m_interval_seconds: 900
+  report_1h_interval_seconds: 3600
+  heartbeat_interval_minutes: 60
+  daily_report_time: "23:30"
+  embed_colors:
+    buy: 0x00FF00
+    sell_profit: 0x0099FF
+    sell_loss: 0xFF0000
+    system: 0x808080
+    emergency: 0xFF6600
